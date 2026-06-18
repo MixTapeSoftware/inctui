@@ -47,6 +47,7 @@ require (
 	github.com/muhlemmer/gu v0.3.1 // indirect
 	github.com/pkg/sftp v1.13.6 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/samber/lo v1.53.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/zitadel/oidc/v2 v2.12.0 // indirect

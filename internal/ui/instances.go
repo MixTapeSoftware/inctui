@@ -1,11 +1,14 @@
 package incusui
 
 import (
-	tea "charm.land/bubbletea/v2"
 	"fmt"
+	"log"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/MixTapeSoftware/inctui/internal/incusapi"
 	"github.com/lxc/incus/shared/api"
-	"log"
 )
 
 func InstancesUI() (tea.Model, error) {
@@ -71,7 +74,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() tea.View {
-	s := "Select an Instance"
+	var b strings.Builder
+	b.WriteString("Select an Instance \n")
 
 	for i, instance := range m.instances {
 		cursor := " "
@@ -83,11 +87,54 @@ func (m model) View() tea.View {
 		//	if _, ok := m.selected[i]; ok {
 		//		checked = "x"
 		//	}
-
-		s += fmt.Sprintf("%s [%s] %s\n", cursor, instance.Status, instance.Name)
+		row := toRow(cursor, instance)
+		b.WriteString(row)
 	}
+	b.WriteString("\nPress q to quit.\n")
 
-	s += "\nPress q to quit.\n"
+	return tea.NewView(b.String())
+}
 
-	return tea.NewView(s)
+func toRow(cursor string, instance api.Instance) string {
+	indicator := StatusIndicator(instance.StatusCode)
+	return fmt.Sprintf("%s %v %s [%s]\n", cursor, indicator, instance.Name, instance.Status)
+}
+
+// Components
+
+func StatusIndicator(code api.StatusCode) string {
+	//  OperationCreated StatusCode = 100
+	//	Started          StatusCode = 101
+	//	Stopped          StatusCode = 102
+	//	Running          StatusCode = 103
+	//	Cancelling       StatusCode = 104
+	//	Pending          StatusCode = 105
+	//	Starting         StatusCode = 106
+	//	Stopping         StatusCode = 107
+	//	Aborting         StatusCode = 108
+	//	Freezing         StatusCode = 109
+	//	Frozen           StatusCode = 110
+	//	Thawed           StatusCode = 111
+	//	Error            StatusCode = 112
+	//	Ready            StatusCode = 113
+
+	switch code {
+	case 101:
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.BrightYellow).
+			Render("●")
+
+	case 102:
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.BrightRed).
+			Render("●")
+	case 103:
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.BrightGreen).
+			Render("●")
+	default:
+		return lipgloss.NewStyle().
+			Render("○")
+
+	}
 }

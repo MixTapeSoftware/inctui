@@ -3,7 +3,9 @@ package incusui
 import (
 	"fmt"
 	"log"
+	"slices"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
@@ -22,7 +24,7 @@ type model struct {
 	selected  map[int]struct{}
 }
 
-func initialModel() model {
+func instances() []api.Instance {
 	client, err := incusapi.NewClient()
 	if err != nil {
 		log.Fatal("Could connect to Incus")
@@ -31,19 +33,26 @@ func initialModel() model {
 	if err != nil {
 		log.Fatal("Couldn't load Incus Instances")
 	}
+	return instances
+
+}
+
+func initialModel() model {
 	return model{
-		instances: instances,
+		instances: instances(),
 		selected:  make(map[int]struct{}),
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return tick()
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-
+	case tickMsg:
+		m.instances = instances()
+		return m, tick()
 	case tea.KeyPressMsg:
 
 		switch msg.String() {
@@ -97,7 +106,17 @@ func (m model) View() tea.View {
 
 func toRow(cursor string, instance api.Instance) string {
 	indicator := StatusIndicator(instance.StatusCode)
-	return fmt.Sprintf("%s %v %s [%s]\n", cursor, indicator, instance.Name, instance.Status)
+	status := StatusText(instance.Status)
+	return fmt.Sprintf("%s %v %s %s\n", cursor, indicator, instance.Name, status)
+}
+
+func StatusText(status string) string {
+	displayableStates := []string{"Starting", "Freezing", "Frozen", "Thawed", "Error", "Pending", "Cancelling"}
+	if slices.Contains(displayableStates, status) {
+		return fmt.Sprintf("[%s]", status)
+	} else {
+		return ""
+	}
 }
 
 // Components
@@ -126,8 +145,8 @@ func StatusIndicator(code api.StatusCode) string {
 
 	case 102:
 		return lipgloss.NewStyle().
-			Foreground(lipgloss.BrightRed).
-			Render("●")
+			Foreground(lipgloss.BrightWhite).
+			Render("○")
 	case 103:
 		return lipgloss.NewStyle().
 			Foreground(lipgloss.BrightGreen).
@@ -137,4 +156,12 @@ func StatusIndicator(code api.StatusCode) string {
 			Render("○")
 
 	}
+}
+
+type tickMsg time.Time
+
+func tick() tea.Cmd {
+	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }

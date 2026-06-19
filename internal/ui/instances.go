@@ -26,14 +26,14 @@ func InstancesUI() (tea.Model, error) {
 }
 
 type statesLookup map[string]api.InstanceState
-type sampleState struct {
+type stateSample struct {
 	statesLookup statesLookup
 	sampleTime   time.Time
 }
 type model struct {
 	instances       []api.Instance
-	sampleState     sampleState
-	lastSampleState sampleState
+	stateSample     stateSample
+	lastStateSample stateSample
 	cursor          int
 	selected        map[int]struct{}
 }
@@ -58,9 +58,9 @@ func instances() []api.Instance {
 
 func initialModel() model {
 	initialStates := map[string]api.InstanceState{}
-	initialSample := sampleState{statesLookup: initialStates, sampleTime: time.Time{}}
+	initialSample := stateSample{statesLookup: initialStates, sampleTime: time.Time{}}
 	return model{
-		lastSampleState: initialSample,
+		lastStateSample: initialSample,
 		instances:       instances(),
 		selected:        make(map[int]struct{}),
 	}
@@ -77,9 +77,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		names := lo.Map(m.instances, func(instance api.Instance, index int) string {
 			return string(instance.Name)
 		})
-		newSampleState := getSampleState(names)
-		m.lastSampleState = m.sampleState
-		m.sampleState = newSampleState
+		newStateSample := getStateSample(names)
+		m.lastStateSample = m.stateSample
+		m.stateSample = newStateSample
 		return m, tick()
 	case tea.KeyPressMsg:
 
@@ -141,10 +141,10 @@ func toRow(cursor string, instance api.Instance, m model) string {
 // samples of the nanoseconds used over a period of nanoseconds
 // and get the % of CPUs uses
 func calcCPUPercent(name string, m model, cores int) float64 {
-	lastTime := m.lastSampleState.sampleTime
-	thisTime := m.sampleState.sampleTime
-	state := m.sampleState.statesLookup[name]
-	lastState := m.lastSampleState.statesLookup[name]
+	lastTime := m.lastStateSample.sampleTime
+	thisTime := m.stateSample.sampleTime
+	state := m.stateSample.statesLookup[name]
+	lastState := m.lastStateSample.statesLookup[name]
 	if lastTime == (time.Time{}) {
 		return 0
 	}
@@ -222,7 +222,7 @@ func tick() tea.Cmd {
 	})
 }
 
-func getSampleState(instanceNames []string) sampleState {
+func getStateSample(instanceNames []string) stateSample {
 	var eg errgroup.Group
 	var mu sync.Mutex
 	client := newClient()
@@ -238,5 +238,5 @@ func getSampleState(instanceNames []string) sampleState {
 	}
 	eg.Wait()
 
-	return sampleState{statesLookup: states, sampleTime: time.Now()}
+	return stateSample{statesLookup: states, sampleTime: time.Now()}
 }

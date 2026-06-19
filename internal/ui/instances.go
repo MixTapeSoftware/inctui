@@ -133,7 +133,13 @@ func toRow(cursor string, instance api.Instance, m model) string {
 	status := StatusText(instance.Status)
 	cores := numCores(instance.ExpandedConfig["limits.cpu"])
 	cpuPercent := calcCPUPercent(instance.Name, m, cores)
-	return fmt.Sprintf("%s %v %s %s %.2f%%\n", cursor, indicator, instance.Name, status, cpuPercent)
+	memory := calcMemory(instance.Name, m)
+	return fmt.Sprintf("%s %v %s %s %.2f%% %v\n", cursor, indicator, instance.Name, status, cpuPercent, memory)
+}
+
+func calcMemory(name string, m model) string {
+	state := m.stateSample.statesLookup[name]
+	return fmt.Sprintf("%vMB", state.Memory.Usage / (1024 * 1024))
 }
 
 // Calculates Percent of CPU over a period of time.

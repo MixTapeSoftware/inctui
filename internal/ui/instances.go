@@ -2,11 +2,15 @@ package incusui
 
 import (
 	"fmt"
-	"github.com/samber/lo"
 	"log"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/samber/lo"
 
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
@@ -21,14 +25,20 @@ func InstancesUI() (tea.Model, error) {
 	return p.Run()
 }
 
+type statesLookup map[string]api.InstanceState
+type sampleState struct {
+	statesLookup statesLookup
+	sampleTime   time.Time
+}
 type model struct {
-	instances      []api.Instance
-	instanceStates map[string]api.InstanceState
-	cursor         int
-	selected       map[int]struct{}
+	instances       []api.Instance
+	sampleState     sampleState
+	lastSampleState sampleState
+	cursor          int
+	selected        map[int]struct{}
 }
 
-func client() incus.InstanceServer {
+func newClient() incus.InstanceServer {
 	client, err := incusapi.NewClient()
 	if err != nil {
 		log.Fatal("Could connect to Incus")
@@ -37,7 +47,7 @@ func client() incus.InstanceServer {
 }
 
 func instances() []api.Instance {
-	client := client()
+	client := newClient()
 	instances, err := incusapi.Instances(client)
 	if err != nil {
 		log.Fatal("Couldn't load Incus Instances")
@@ -47,9 +57,12 @@ func instances() []api.Instance {
 }
 
 func initialModel() model {
+	initialStates := map[string]api.InstanceState{}
+	initialSample := sampleState{statesLookup: initialStates, sampleTime: time.Time{}}
 	return model{
-		instances: instances(),
-		selected:  make(map[int]struct{}),
+		lastSampleState: initialSample,
+		instances:       instances(),
+		selected:        make(map[int]struct{}),
 	}
 }
 
@@ -64,7 +77,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		names := lo.Map(m.instances, func(instance api.Instance, index int) string {
 			return string(instance.Name)
 		})
-		m.instanceStates = getStates(names)
+		newSampleState := getSampleState(names)
+		m.lastSampleState = m.sampleState
+		m.sampleState = newSampleState
 		return m, tick()
 	case tea.KeyPressMsg:
 
@@ -105,11 +120,7 @@ func (m model) View() tea.View {
 			cursor = ">"
 		}
 
-		//	checked := " "
-		//	if _, ok := m.selected[i]; ok {
-		//		checked = "x"
-		//	}
-		row := toRow(cursor, instance, m.instanceStates[instance.Name])
+		row := toRow(cursor, instance, m)
 		b.WriteString(row)
 	}
 	b.WriteString("\nPress q to quit.\n")
@@ -117,10 +128,42 @@ func (m model) View() tea.View {
 	return tea.NewView(b.String())
 }
 
-func toRow(cursor string, instance api.Instance, state api.InstanceState) string {
+func toRow(cursor string, instance api.Instance, m model) string {
 	indicator := StatusIndicator(instance.StatusCode)
 	status := StatusText(instance.Status)
-	return fmt.Sprintf("%s %v %s %s %v\n", cursor, indicator, instance.Name, status, state.CPU.Usage)
+	cores := numCores(instance.ExpandedConfig["limits.cpu"])
+	cpuPercent := calcCPUPercent(instance.Name, m, cores)
+	return fmt.Sprintf("%s %v %s %s %.2f%%\n", cursor, indicator, instance.Name, status, cpuPercent)
+}
+
+// Calculates Percent of CPU over a period of time.
+// Assuming 1 second == 100% cpu usage, and we have a CPu count, we can subtract
+// samples of the nanoseconds used over a period of nanoseconds
+// and get the % of CPUs uses
+func calcCPUPercent(name string, m model, cores int) float64 {
+	lastTime := m.lastSampleState.sampleTime
+	thisTime := m.sampleState.sampleTime
+	state := m.sampleState.statesLookup[name]
+	lastState := m.lastSampleState.statesLookup[name]
+	if lastTime == (time.Time{}) {
+		return 0
+	}
+	elapsedNanos := thisTime.Sub(lastTime).Nanoseconds()
+	return float64(state.CPU.Usage-lastState.CPU.Usage) * 1000 / float64(elapsedNanos*int64(cores))
+
+}
+
+func numCores(configuredCPULimits string) int {
+
+	configuredCores, err := strconv.Atoi(configuredCPULimits)
+
+	if err != nil || configuredCores == 0 {
+		return runtime.NumCPU()
+
+	} else {
+		return configuredCores
+	}
+
 }
 
 func StatusText(status string) string {
@@ -174,23 +217,26 @@ func StatusIndicator(code api.StatusCode) string {
 type tickMsg time.Time
 
 func tick() tea.Cmd {
-	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
+	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }
 
-func getStates(instanceNames []string) map[string]api.InstanceState {
+func getSampleState(instanceNames []string) sampleState {
 	var eg errgroup.Group
-	client := client()
+	var mu sync.Mutex
+	client := newClient()
 	states := make(map[string]api.InstanceState, len(instanceNames))
 	for _, name := range instanceNames {
 		eg.Go(func() error {
 			instanceState, err := incusapi.InstanceState(client, name)
+			mu.Lock()
 			states[name] = *instanceState
+			mu.Unlock()
 			return err
 		})
-		eg.Wait()
 	}
+	eg.Wait()
 
-	return states
+	return sampleState{statesLookup: states, sampleTime: time.Now()}
 }

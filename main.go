@@ -4,12 +4,18 @@ import (
 	"fmt"
 	"os"
 
-	incusui "github.com/MixTapeSoftware/inctui/internal/ui"
+	"github.com/MixTapeSoftware/inctui/internal/incusapi"
+	"github.com/MixTapeSoftware/inctui/internal/ui"
 )
 
 func main() {
-	if _, err := incusui.InstancesUI(); err == nil {
-		fmt.Println("error:", err)
-		os.Exit(1)
+	fetcher, err := incusapi.NewInstanceFetcher()
+
+	if err != nil {
+		fmt.Println("Error loading fetcher", err)
 	}
+	if _, err := incusui.InstancesUI(fetcher); err == nil {
+		fmt.Println("error:", err)
+	}
+	os.Exit(1)
 }

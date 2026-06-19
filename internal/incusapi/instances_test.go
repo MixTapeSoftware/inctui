@@ -5,10 +5,12 @@ import (
 )
 
 func TestInstances(t *testing.T) {
-	client, _ := NewClient()
+	fetcher, err := NewInstanceFetcher()
+	if err != nil {
+		t.Fatalf("NewInstanceFetcher() failed: %v", err)
+	}
 
-	//want := "foo"
-	got, err := Instances(client)
+	got, err := fetcher.Instances()
 	for _, instance := range got {
 
 		t.Logf("%v\n", instance.Name)
@@ -16,16 +18,4 @@ func TestInstances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Instances() failed: %v", err)
 	}
-
-	//	if want != got {
-	//		t.Error("want %v got %v", want, got)
-	//	}
-}
-
-func Map(vs []string, f func(string) string) []string {
-	vsm := make([]string, len(vs))
-	for i, v := range vs {
-		vsm[i] = f(v)
-	}
-	return vsm
 }

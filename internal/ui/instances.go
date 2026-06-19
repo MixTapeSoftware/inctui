@@ -14,11 +14,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
-	"github.com/MixTapeSoftware/inctui/internal/incusapi"
-	"github.com/lxc/incus/client"
 	"github.com/lxc/incus/shared/api"
 	"golang.org/x/sync/errgroup"
 )
+
+type InstanceFetcher interface {
+	Instances() ([]api.Instance, error)
+	InstanceState(name string) (*api.InstanceState, error)
+}
 
 type statesLookup map[string]api.InstanceState
 
@@ -28,6 +31,7 @@ type stateSnapshot struct {
 }
 
 type model struct {
+	fetcher           InstanceFetcher
 	instances         []api.Instance
 	stateSnapshot     stateSnapshot
 	lastStateSnapshot stateSnapshot
@@ -36,8 +40,8 @@ type model struct {
 }
 
 // Initialize and Run the Instances UI
-func InstancesUI() (tea.Model, error) {
-	p := tea.NewProgram(initialModel())
+func InstancesUI(fetcher InstanceFetcher) (tea.Model, error) {
+	p := tea.NewProgram(initialModel(fetcher))
 	return p.Run()
 }
 
@@ -54,9 +58,9 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
-		m.instances = instances()
+		m.instances = instances(m.fetcher)
 		names := instanceNames(m.instances)
-		newStateSnapshot := getStateSnapshot(names)
+		newStateSnapshot := getStateSnapshot(names, m.fetcher)
 		m.lastStateSnapshot = m.stateSnapshot
 		m.stateSnapshot = newStateSnapshot
 		return m, tick()
@@ -113,27 +117,19 @@ func (m model) View() tea.View {
 	return tea.NewView(b.String())
 }
 
-func newClient() incus.InstanceServer {
-	client, err := incusapi.NewClient()
-	if err != nil {
-		log.Fatal("Could connect to Incus")
-	}
-	return client
-}
-
-func initialModel() model {
+func initialModel(fetcher InstanceFetcher) model {
 	initialStates := map[string]api.InstanceState{}
 	initialSample := stateSnapshot{statesLookup: initialStates, sampleTime: time.Time{}}
 	return model{
+		fetcher:           fetcher,
 		lastStateSnapshot: initialSample,
-		instances:         instances(),
+		instances:         instances(fetcher),
 		selected:          make(map[int]struct{}),
 	}
 }
 
-func instances() []api.Instance {
-	client := newClient()
-	instances, err := incusapi.Instances(client)
+func instances(fetcher InstanceFetcher) []api.Instance {
+	instances, err := fetcher.Instances()
 	if err != nil {
 		log.Fatal("Couldn't load Incus Instances")
 	}
@@ -274,14 +270,13 @@ func tick() tea.Cmd {
 // We use goroutines to fetch them concurrently, populate a lookup map keyed
 // by instance name and then wait until all requests have completed to rerturn
 // them in a batch.
-func getStateSnapshot(instanceNames []string) stateSnapshot {
+func getStateSnapshot(instanceNames []string, fetcher InstanceFetcher) stateSnapshot {
 	var eg errgroup.Group
 	var mu sync.Mutex
-	client := newClient()
 	states := make(map[string]api.InstanceState, len(instanceNames))
 	for _, name := range instanceNames {
 		eg.Go(func() error {
-			instanceState, err := incusapi.InstanceState(client, name)
+			instanceState, err := fetcher.InstanceState(name)
 			mu.Lock()
 			states[name] = *instanceState
 			mu.Unlock()

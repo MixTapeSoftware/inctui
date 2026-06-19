@@ -1,7 +1,9 @@
 package incusui
 
 import (
+	"charm.land/lipgloss/v2/table"
 	"fmt"
+	"github.com/samber/lo"
 	"log"
 	"runtime"
 	"slices"
@@ -9,8 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/samber/lo"
 
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
@@ -20,52 +20,33 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+type statesLookup map[string]api.InstanceState
+
+type stateSnapshot struct {
+	statesLookup statesLookup
+	sampleTime   time.Time
+}
+
+type model struct {
+	instances         []api.Instance
+	stateSnapshot     stateSnapshot
+	lastStateSnapshot stateSnapshot
+	cursor            int
+	selected          map[int]struct{}
+}
+
+// Initialize and Run the Instances UI
 func InstancesUI() (tea.Model, error) {
 	p := tea.NewProgram(initialModel())
 	return p.Run()
 }
 
-type statesLookup map[string]api.InstanceState
-type stateSample struct {
-	statesLookup statesLookup
-	sampleTime   time.Time
-}
-type model struct {
-	instances       []api.Instance
-	stateSample     stateSample
-	lastStateSample stateSample
-	cursor          int
-	selected        map[int]struct{}
-}
+// ************************************************
+// Bubbletea tea.Model Interface lifecyled hooks
+// Init(), Update(), View()
+// ************************************************
 
-func newClient() incus.InstanceServer {
-	client, err := incusapi.NewClient()
-	if err != nil {
-		log.Fatal("Could connect to Incus")
-	}
-	return client
-}
-
-func instances() []api.Instance {
-	client := newClient()
-	instances, err := incusapi.Instances(client)
-	if err != nil {
-		log.Fatal("Couldn't load Incus Instances")
-	}
-	return instances
-
-}
-
-func initialModel() model {
-	initialStates := map[string]api.InstanceState{}
-	initialSample := stateSample{statesLookup: initialStates, sampleTime: time.Time{}}
-	return model{
-		lastStateSample: initialSample,
-		instances:       instances(),
-		selected:        make(map[int]struct{}),
-	}
-}
-
+// We start a heartbeat to refresh live state data like CPU usage
 func (m model) Init() tea.Cmd {
 	return tick()
 }
@@ -74,12 +55,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
 		m.instances = instances()
-		names := lo.Map(m.instances, func(instance api.Instance, index int) string {
-			return string(instance.Name)
-		})
-		newStateSample := getStateSample(names)
-		m.lastStateSample = m.stateSample
-		m.stateSample = newStateSample
+		names := instanceNames(m.instances)
+		newStateSnapshot := getStateSnapshot(names)
+		m.lastStateSnapshot = m.stateSnapshot
+		m.stateSnapshot = newStateSnapshot
 		return m, tick()
 	case tea.KeyPressMsg:
 
@@ -110,36 +89,98 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func instanceNames(instances []api.Instance) []string {
+	return lo.Map(instances, func(instance api.Instance, index int) string {
+		return string(instance.Name)
+	})
+}
+
 func (m model) View() tea.View {
 	var b strings.Builder
-	b.WriteString("Select an Instance \n")
+	t := instancesTable()
 
 	for i, instance := range m.instances {
 		cursor := " "
 		if m.cursor == i {
-			cursor = ">"
+			cursor = "→"
 		}
 
-		row := toRow(cursor, instance, m)
-		b.WriteString(row)
+		appendRow(t, cursor, instance, m)
 	}
+	b.WriteString(t.String())
 	b.WriteString("\nPress q to quit.\n")
 
 	return tea.NewView(b.String())
 }
 
-func toRow(cursor string, instance api.Instance, m model) string {
+func newClient() incus.InstanceServer {
+	client, err := incusapi.NewClient()
+	if err != nil {
+		log.Fatal("Could connect to Incus")
+	}
+	return client
+}
+
+func initialModel() model {
+	initialStates := map[string]api.InstanceState{}
+	initialSample := stateSnapshot{statesLookup: initialStates, sampleTime: time.Time{}}
+	return model{
+		lastStateSnapshot: initialSample,
+		instances:         instances(),
+		selected:          make(map[int]struct{}),
+	}
+}
+
+func instances() []api.Instance {
+	client := newClient()
+	instances, err := incusapi.Instances(client)
+	if err != nil {
+		log.Fatal("Couldn't load Incus Instances")
+	}
+	return instances
+}
+
+func instancesTable() *table.Table {
+	var (
+		purple    = lipgloss.Color("99")
+		gray      = lipgloss.Color("245")
+		lightGray = lipgloss.Color("241")
+
+		headerStyle  = lipgloss.NewStyle().Foreground(purple).Bold(true).Align(lipgloss.Center)
+		cellStyle    = lipgloss.NewStyle().Padding(0, 1).Width(14)
+		oddRowStyle  = cellStyle.Foreground(gray)
+		evenRowStyle = cellStyle.Foreground(lightGray)
+	)
+
+	return table.New().
+		Width(50).
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(lipgloss.NewStyle().Foreground(purple)).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			switch {
+			case row == table.HeaderRow:
+				return headerStyle
+			case row%2 == 0:
+				return evenRowStyle
+			default:
+				return oddRowStyle
+			}
+		}).
+		Headers("Instance", "CPU", "Memory")
+}
+
+func appendRow(t *table.Table, cursor string, instance api.Instance, m model) {
 	indicator := StatusIndicator(instance.StatusCode)
 	status := StatusText(instance.Status)
 	cores := numCores(instance.ExpandedConfig["limits.cpu"])
-	cpuPercent := calcCPUPercent(instance.Name, m, cores)
+	cpuPercent := fmt.Sprintf("%.2f%%", calcCPUPercent(instance.Name, m, cores))
 	memory := calcMemory(instance.Name, m)
-	return fmt.Sprintf("%s %v %s %s %.2f%% %v\n", cursor, indicator, instance.Name, status, cpuPercent, memory)
+	t.Row(fmt.Sprintf("%s %s %s %s", cursor, indicator, instance.Name, status), cpuPercent, memory)
 }
 
 func calcMemory(name string, m model) string {
-	state := m.stateSample.statesLookup[name]
-	return fmt.Sprintf("%vMB", state.Memory.Usage / (1024 * 1024))
+	state := m.stateSnapshot.statesLookup[name]
+	return fmt.Sprintf("%vMB", state.Memory.Usage/(1024*1024))
 }
 
 // Calculates Percent of CPU over a period of time.
@@ -147,20 +188,19 @@ func calcMemory(name string, m model) string {
 // samples of the nanoseconds used over a period of nanoseconds
 // and get the % of CPUs uses
 func calcCPUPercent(name string, m model, cores int) float64 {
-	lastTime := m.lastStateSample.sampleTime
-	thisTime := m.stateSample.sampleTime
-	state := m.stateSample.statesLookup[name]
-	lastState := m.lastStateSample.statesLookup[name]
-	if lastTime == (time.Time{}) {
+	newTime := m.stateSnapshot.sampleTime
+	lastTime := m.lastStateSnapshot.sampleTime
+	newState := m.stateSnapshot.statesLookup[name]
+	lastState := m.lastStateSnapshot.statesLookup[name]
+	if lastTime.Equal(time.Time{}) {
 		return 0
 	}
-	elapsedNanos := thisTime.Sub(lastTime).Nanoseconds()
-	return float64(state.CPU.Usage-lastState.CPU.Usage) * 1000 / float64(elapsedNanos*int64(cores))
+	elapsedNanos := newTime.Sub(lastTime).Nanoseconds()
+	return float64(newState.CPU.Usage-lastState.CPU.Usage) * 1000 / float64(elapsedNanos*int64(cores))
 
 }
 
 func numCores(configuredCPULimits string) int {
-
 	configuredCores, err := strconv.Atoi(configuredCPULimits)
 
 	if err != nil || configuredCores == 0 {
@@ -228,7 +268,13 @@ func tick() tea.Cmd {
 	})
 }
 
-func getStateSample(instanceNames []string) stateSample {
+// Gets a runtime state snapshot
+//
+// Runtime state /1.0/instances/{name}/state must be fetched one at a time.
+// We use goroutines to fetch them concurrently, populate a lookup map keyed
+// by instance name and then wait until all requests have completed to rerturn
+// them in a batch.
+func getStateSnapshot(instanceNames []string) stateSnapshot {
 	var eg errgroup.Group
 	var mu sync.Mutex
 	client := newClient()
@@ -244,5 +290,5 @@ func getStateSample(instanceNames []string) stateSample {
 	}
 	eg.Wait()
 
-	return stateSample{statesLookup: states, sampleTime: time.Now()}
+	return stateSnapshot{statesLookup: states, sampleTime: time.Now()}
 }

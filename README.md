@@ -4,7 +4,7 @@ IncTUI provies a TUI on top of the local Incus API (via unix socket).
 
 Current features:
 
-* Display State, live CPU usage, live memory usage
+* Display status, live CPU usage, live memory usage
 * Start/Stop containers
 
 [![asciicast](https://asciinema.org/a/acCBHs8LGylTIQ1L.svg)](https://asciinema.org/a/acCBHs8LGylTIQ1L)

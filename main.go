@@ -9,12 +9,12 @@ import (
 )
 
 func main() {
-	fetcher, err := incusapi.NewInstanceFetcher()
+	server, err := incusapi.NewInstanceServer()
 
 	if err != nil {
-		fmt.Println("Error loading fetcher", err)
+		fmt.Println("Error loading server", err)
 	}
-	if _, err := incusui.InstancesUI(fetcher); err == nil {
+	if _, err := incusui.InstancesUI(server); err == nil {
 		fmt.Println("error:", err)
 	}
 	os.Exit(1)

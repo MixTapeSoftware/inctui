@@ -5,9 +5,9 @@ import (
 )
 
 func TestInstances(t *testing.T) {
-	fetcher, err := NewInstanceFetcher()
+	fetcher, err := NewInstanceServer()
 	if err != nil {
-		t.Fatalf("NewInstanceFetcher() failed: %v", err)
+		t.Fatalf("NewInstanceServer() failed: %v", err)
 	}
 
 	got, err := fetcher.Instances()

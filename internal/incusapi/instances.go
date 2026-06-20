@@ -6,17 +6,17 @@ import (
 	"sort"
 )
 
-type InstanceFetcher struct {
+type InstanceServer struct {
 	server incus.InstanceServer
 }
 
-func NewInstanceFetcher() (*InstanceFetcher, error) {
+func NewInstanceServer() (*InstanceServer, error) {
 	server, err := NewClient()
-	return &InstanceFetcher{server: server}, err
+	return &InstanceServer{server: server}, err
 }
 
 // Get a list of incus instances
-func (f *InstanceFetcher) Instances() ([]api.Instance, error) {
+func (f *InstanceServer) Instances() ([]api.Instance, error) {
 	instances, err := f.server.GetInstances(api.InstanceTypeAny)
 	if err != nil {
 		return nil, err
@@ -29,9 +29,23 @@ func (f *InstanceFetcher) Instances() ([]api.Instance, error) {
 }
 
 // Get the live state of an incus instance (e.g. CPU usage)
-func (f *InstanceFetcher) InstanceState(name string) (*api.InstanceState, error) {
+func (f *InstanceServer) InstanceState(name string) (*api.InstanceState, error) {
 	// Ignore the ETAG for now - used in versioning the resource for optimistic conflict resolution
 	// we don't need it.
 	instanceState, _, err := f.server.GetInstanceState(name)
 	return instanceState, err
+}
+
+func (f *InstanceServer) ToggleInstance(name string, statusCode api.StatusCode) {
+	var action string
+	if statusCode == api.Running {
+		action = "stop"
+	} else if statusCode == api.Stopped {
+		action = "start"
+	}
+
+	if action != "" {
+	  statePut := api.InstanceStatePut{Action: action}
+	  f.server.UpdateInstanceState(name, statePut, "")
+  }
 }

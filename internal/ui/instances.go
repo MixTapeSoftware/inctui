@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/samber/lo"
 	"log"
+	"os"
 	"runtime"
 	"slices"
 	"strconv"
@@ -18,9 +19,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type InstanceFetcher interface {
+type InstanceServer interface {
 	Instances() ([]api.Instance, error)
 	InstanceState(name string) (*api.InstanceState, error)
+	ToggleInstance(name string, statusCode api.StatusCode)
 }
 
 type statesLookup map[string]api.InstanceState
@@ -31,7 +33,8 @@ type stateSnapshot struct {
 }
 
 type model struct {
-	fetcher           InstanceFetcher
+	logger            *os.File
+	server            InstanceServer
 	instances         []api.Instance
 	stateSnapshot     stateSnapshot
 	lastStateSnapshot stateSnapshot
@@ -40,8 +43,8 @@ type model struct {
 }
 
 // Initialize and Run the Instances UI
-func InstancesUI(fetcher InstanceFetcher) (tea.Model, error) {
-	p := tea.NewProgram(initialModel(fetcher))
+func InstancesUI(server InstanceServer) (tea.Model, error) {
+	p := tea.NewProgram(initialModel(server))
 	return p.Run()
 }
 
@@ -58,9 +61,9 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
-		m.instances = instances(m.fetcher)
+		m.instances = instances(m.server)
 		names := instanceNames(m.instances)
-		newStateSnapshot := getStateSnapshot(names, m.fetcher)
+		newStateSnapshot := getStateSnapshot(names, m.server)
 		m.lastStateSnapshot = m.stateSnapshot
 		m.stateSnapshot = newStateSnapshot
 		return m, tick()
@@ -81,13 +84,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 
-		case "enter", "space":
-			_, ok := m.selected[m.cursor]
-			if ok {
-				delete(m.selected, m.cursor)
-			} else {
-				m.selected[m.cursor] = struct{}{}
-			}
+		case "enter", "space", "s":
+			selected := m.instances[m.cursor]
+			m.server.ToggleInstance(selected.Name, selected.StatusCode)
 		}
 	}
 	return m, nil
@@ -117,19 +116,21 @@ func (m model) View() tea.View {
 	return tea.NewView(b.String())
 }
 
-func initialModel(fetcher InstanceFetcher) model {
+func initialModel(server InstanceServer) model {
+	f, _ := os.Create("debug.log")
 	initialStates := map[string]api.InstanceState{}
 	initialSample := stateSnapshot{statesLookup: initialStates, sampleTime: time.Time{}}
 	return model{
-		fetcher:           fetcher,
+		logger:            f,
+		server:            server,
 		lastStateSnapshot: initialSample,
-		instances:         instances(fetcher),
+		instances:         instances(server),
 		selected:          make(map[int]struct{}),
 	}
 }
 
-func instances(fetcher InstanceFetcher) []api.Instance {
-	instances, err := fetcher.Instances()
+func instances(server InstanceServer) []api.Instance {
+	instances, err := server.Instances()
 	if err != nil {
 		log.Fatal("Couldn't load Incus Instances")
 	}
@@ -270,17 +271,20 @@ func tick() tea.Cmd {
 // We use goroutines to fetch them concurrently, populate a lookup map keyed
 // by instance name and then wait until all requests have completed to rerturn
 // them in a batch.
-func getStateSnapshot(instanceNames []string, fetcher InstanceFetcher) stateSnapshot {
+func getStateSnapshot(instanceNames []string, server InstanceServer) stateSnapshot {
 	var eg errgroup.Group
 	var mu sync.Mutex
 	states := make(map[string]api.InstanceState, len(instanceNames))
 	for _, name := range instanceNames {
 		eg.Go(func() error {
-			instanceState, err := fetcher.InstanceState(name)
+			instanceState, err := server.InstanceState(name)
+			if err != nil {
+				return err
+			}
 			mu.Lock()
 			states[name] = *instanceState
 			mu.Unlock()
-			return err
+			return nil
 		})
 	}
 	eg.Wait()

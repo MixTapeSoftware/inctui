@@ -85,8 +85,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "enter", "space", "s":
-			selected := m.instances[m.cursor]
-			m.server.ToggleInstance(selected.Name, selected.StatusCode)
+			if len(m.instances) > 0 {
+				selected := m.instances[m.cursor]
+				m.server.ToggleInstance(selected.Name, selected.StatusCode)
+			}
 		}
 	}
 	return m, nil

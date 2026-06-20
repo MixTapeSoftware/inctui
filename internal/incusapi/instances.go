@@ -38,14 +38,15 @@ func (f *InstanceServer) InstanceState(name string) (*api.InstanceState, error) 
 
 func (f *InstanceServer) ToggleInstance(name string, statusCode api.StatusCode) {
 	var action string
-	if statusCode == api.Running {
+	switch statusCode {
+	case api.Running:
 		action = "stop"
-	} else if statusCode == api.Stopped {
+	case api.Stopped:
 		action = "start"
 	}
 
 	if action != "" {
-	  statePut := api.InstanceStatePut{Action: action}
-	  f.server.UpdateInstanceState(name, statePut, "")
-  }
+		statePut := api.InstanceStatePut{Action: action}
+		f.server.UpdateInstanceState(name, statePut, "")
+	}
 }

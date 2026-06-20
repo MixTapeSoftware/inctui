@@ -1,4 +1,4 @@
-# IncTUI: An Incus TUI for Developers
+# IncTUI: Terminal UI for Incus
 
 IncTUI provies a TUI on top of the local Incus API (via unix socket).
 

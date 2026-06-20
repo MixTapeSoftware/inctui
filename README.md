@@ -11,13 +11,6 @@ brew install incus
 brew install colima 
 colima start --runtime=incus
 ```
-### Set `INCUS_SOCKET` path
-
-Put this in your env config:
-`INCUS_SOCKET=~/.colima/default/incus.sock`
-
-If `inctui` fails to start, check `~/.config/incus/config.yml` and replace the above with the path after `unix://`
-
 ## Installation 
 
 ### Clone, build and run

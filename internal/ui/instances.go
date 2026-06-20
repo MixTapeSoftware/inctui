@@ -153,7 +153,7 @@ func instancesTable() *table.Table {
 	)
 
 	return table.New().
-		Width(50).
+		Width(60).
 		Border(lipgloss.NormalBorder()).
 		BorderStyle(lipgloss.NewStyle().Foreground(purple)).
 		StyleFunc(func(row, col int) lipgloss.Style {

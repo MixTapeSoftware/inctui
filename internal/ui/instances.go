@@ -111,7 +111,8 @@ func (m model) View() tea.View {
 		appendRow(t, cursor, instance, m)
 	}
 	b.WriteString(t.String())
-	b.WriteString("\nPress q to quit.\n")
+	b.WriteString("\n")
+	b.WriteString(key())
 
 	return tea.NewView(b.String())
 }
@@ -290,4 +291,14 @@ func getStateSnapshot(instanceNames []string, server InstanceServer) stateSnapsh
 	eg.Wait()
 
 	return stateSnapshot{statesLookup: states, sampleTime: time.Now()}
+}
+
+func key() string {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("245")).
+		Bold(true).
+		PaddingLeft(2).
+		Width(50).
+		Render("start/stop with space; Press q to quit")
+
 }

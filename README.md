@@ -2,6 +2,8 @@
 
 IncTUI provies a TUI on top of the local Incus API (via unix socket).
 
+[![asciicast](https://asciinema.org/a/acCBHs8LGylTIQ1L.svg)](https://asciinema.org/a/acCBHs8LGylTIQ1L)
+
 ## Incus (Linux containers) on MacOS
 
 I recommend installing Incus with `Colima`:

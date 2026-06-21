@@ -28,6 +28,11 @@ func (f *InstanceServer) Instances() ([]api.Instance, error) {
 	return instances, nil
 }
 
+func (f *InstanceServer) Instance(name string) (*api.Instance, error) {
+	instance, _, err := f.server.GetInstance(name)
+	return instance, err
+}
+
 // Get the live state of an incus instance (e.g. CPU usage)
 func (f *InstanceServer) InstanceState(name string) (*api.InstanceState, error) {
 	// Ignore the ETAG for now - used in versioning the resource for optimistic conflict resolution
@@ -36,17 +41,22 @@ func (f *InstanceServer) InstanceState(name string) (*api.InstanceState, error) 
 	return instanceState, err
 }
 
-func (f *InstanceServer) ToggleInstance(name string, statusCode api.StatusCode) {
+func (f *InstanceServer) ToggleInstance(name string, statusCode api.StatusCode) api.StatusCode {
 	var action string
+	var transitionalStatusCode api.StatusCode
 	switch statusCode {
 	case api.Running:
 		action = "stop"
+		transitionalStatusCode = api.Stopping
 	case api.Stopped:
 		action = "start"
+		transitionalStatusCode = api.Starting
 	}
 
 	if action != "" {
 		statePut := api.InstanceStatePut{Action: action}
 		f.server.UpdateInstanceState(name, statePut, "")
+		return transitionalStatusCode
 	}
+	return statusCode
 }

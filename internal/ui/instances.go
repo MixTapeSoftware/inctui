@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/log"
-
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/lipgloss/v2/table"
+	"github.com/charmbracelet/log"
 
 	"github.com/samber/lo"
 
@@ -23,8 +23,9 @@ import (
 
 type InstanceServer interface {
 	Instances() ([]api.Instance, error)
+	Instance(name string) (*api.Instance, error)
 	InstanceState(name string) (*api.InstanceState, error)
-	ToggleInstance(name string, statusCode api.StatusCode)
+	ToggleInstance(name string, statusCode api.StatusCode) api.StatusCode
 }
 
 type statesLookup map[string]api.InstanceState
@@ -35,6 +36,8 @@ type stateSnapshot struct {
 }
 
 type model struct {
+	spinner           spinner.Model
+	loading           bool
 	server            InstanceServer
 	instances         []api.Instance
 	stateSnapshot     stateSnapshot
@@ -56,24 +59,30 @@ func InstancesUI(server InstanceServer) (tea.Model, error) {
 
 // We start a heartbeat to refresh live state data like CPU usage
 func (m model) Init() tea.Cmd {
-	return tick()
+	return tea.Batch(tick(), m.spinner.Tick)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	log.Debug("Update", "msg", fmt.Sprintf("%T", msg))
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	case tickMsg:
 		m.instances = instances(m.server)
 		names := instanceNames(m.instances)
 		newStateSnapshot := getStateSnapshot(names, m.server)
 		m.lastStateSnapshot = m.stateSnapshot
 		m.stateSnapshot = newStateSnapshot
+		m.loading = false
 		return m, tick()
 	case tea.KeyPressMsg:
 
 		switch msg.String() {
 
 		case "ctrl+c", "q":
+			m.loading = false
 			return m, tea.Quit
 
 		case "up", "k":
@@ -89,7 +98,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter", "space", "s":
 			if len(m.instances) > 0 {
 				selected := m.instances[m.cursor]
-				m.server.ToggleInstance(selected.Name, selected.StatusCode)
+				transitionalStatusCode := m.server.ToggleInstance(selected.Name, selected.StatusCode)
+				selected.StatusCode = transitionalStatusCode
+				m.instances[m.cursor] = selected
+				m.loading = true
 			}
 		}
 	}
@@ -117,7 +129,10 @@ func (m model) View() tea.View {
 	b.WriteString(t.String())
 	b.WriteString("\n")
 	b.WriteString(key())
-
+	if m.loading == true {
+		spinner := fmt.Sprintf("\n\n %s Updating Incus... \n\n", m.spinner.View())
+		b.WriteString(spinner)
+	}
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	return v
@@ -126,7 +141,11 @@ func (m model) View() tea.View {
 func initialModel(server InstanceServer) model {
 	initialStates := map[string]api.InstanceState{}
 	initialSample := stateSnapshot{statesLookup: initialStates, sampleTime: time.Time{}}
+	s := spinner.New()
+	s.Spinner = spinner.Moon
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	return model{
+		spinner:           s,
 		server:            server,
 		lastStateSnapshot: initialSample,
 		instances:         instances(server),
@@ -239,20 +258,24 @@ func StatusIndicator(code api.StatusCode) string {
 	//	Ready            StatusCode = 113
 
 	switch code {
-	case 101:
+	case api.Starting:
 		return lipgloss.NewStyle().
-			Foreground(lipgloss.BrightYellow).
+			Foreground(lipgloss.BrightCyan).
 			Render("●")
-
-	case 102:
+	case api.Stopped:
 		return lipgloss.NewStyle().
 			Foreground(lipgloss.BrightWhite).
 			Render("○")
-	case 103:
+	case api.Stopping:
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.BrightMagenta).
+			Render("●")
+	case api.Running:
 		return lipgloss.NewStyle().
 			Foreground(lipgloss.BrightGreen).
 			Render("●")
 	default:
+		log.Debug("Update", "StatusCode", fmt.Sprintf("%v", code))
 		return lipgloss.NewStyle().
 			Render("○")
 

@@ -7,7 +7,7 @@ Current features:
 * Display status, live CPU usage, live memory usage
 * Start/Stop containers
 
-[![asciicast](https://asciinema.org/a/acCBHs8LGylTIQ1L.svg)](https://asciinema.org/a/acCBHs8LGylTIQ1L)
+[![asciicast](https://asciinema.org/a/MWp6F8po15TZU2e5.svg)](https://asciinema.org/a/acCBHs8LGylTIQ1L)
 
 ## Incus (Linux containers) on MacOS
 

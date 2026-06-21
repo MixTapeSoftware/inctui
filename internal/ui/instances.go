@@ -1,17 +1,19 @@
 package incusui
 
 import (
-	"charm.land/lipgloss/v2/table"
 	"fmt"
-	"github.com/samber/lo"
-	"log"
-	"os"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/charmbracelet/log"
+
+	"charm.land/lipgloss/v2/table"
+
+	"github.com/samber/lo"
 
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
@@ -33,7 +35,6 @@ type stateSnapshot struct {
 }
 
 type model struct {
-	logger            *os.File
 	server            InstanceServer
 	instances         []api.Instance
 	stateSnapshot     stateSnapshot
@@ -59,6 +60,7 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	log.Debug("Update", "msg", fmt.Sprintf("%T", msg))
 	switch msg := msg.(type) {
 	case tickMsg:
 		m.instances = instances(m.server)
@@ -116,15 +118,15 @@ func (m model) View() tea.View {
 	b.WriteString("\n")
 	b.WriteString(key())
 
-	return tea.NewView(b.String())
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	return v
 }
 
 func initialModel(server InstanceServer) model {
-	f, _ := os.Create("debug.log")
 	initialStates := map[string]api.InstanceState{}
 	initialSample := stateSnapshot{statesLookup: initialStates, sampleTime: time.Time{}}
 	return model{
-		logger:            f,
 		server:            server,
 		lastStateSnapshot: initialSample,
 		instances:         instances(server),
@@ -197,7 +199,6 @@ func calcCPUPercent(name string, m model, cores int) float64 {
 	}
 	elapsedNanos := newTime.Sub(lastTime).Nanoseconds()
 	return float64(newState.CPU.Usage-lastState.CPU.Usage) * 1000 / float64(elapsedNanos*int64(cores))
-
 }
 
 func numCores(configuredCPULimits string) int {
@@ -205,11 +206,9 @@ func numCores(configuredCPULimits string) int {
 
 	if err != nil || configuredCores == 0 {
 		return runtime.NumCPU()
-
 	} else {
 		return configuredCores
 	}
-
 }
 
 func StatusText(status string) string {
@@ -302,5 +301,4 @@ func key() string {
 		PaddingLeft(2).
 		Width(50).
 		Render("start/stop with space; Press q to quit")
-
 }

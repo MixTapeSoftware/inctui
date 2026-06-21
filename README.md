@@ -27,3 +27,9 @@ colima start --runtime=incus
  go build . \
  ./inctui
 ```
+
+## Developing 
+
+Run with live debugger to see bubbletea lifecyle events:
+
+`export DEBUG=true; go run .`
